@@ -7,6 +7,21 @@ export class XaiExecutor extends BaseExecutor {
   }
 
   transformRequest(model, body) {
-    return body;
+    const effortLevels = ["none", "low", "medium", "high", "xhigh"];
+    let out = { ...body };
+    let modelEffort = null;
+
+    for (const level of effortLevels) {
+      if (out.model && out.model.endsWith(`-${level}`)) {
+        modelEffort = level;
+        out.model = out.model.replace(`-${level}`, "");
+        break;
+      }
+    }
+
+    if (modelEffort) {
+      out.reasoning_effort = modelEffort;
+    }
+    return out;
   }
 }
