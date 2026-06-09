@@ -236,19 +236,22 @@ async function aggregateXaiUsage(connection) {
     byModel[r.model] += used;
   }
 
+  // Cumulative aggregates have no cap, so the progress bar is meaningless.
+  // Mark them as unlimited + remaining: 100 so the dashboard renders the
+  // green "🟢 100%" badge and hides the bar instead of "🔴 0%".
+  const unlimited = { remaining: 100, resetAt: null, unlimited: true };
+
   const quotas = {
     'Total spend (30d)': {
       used: Number(totals.cost.toFixed(4)),
       total: 0,
       unit: 'usd',
-      resetAt: null,
-      unlimited: false,
+      ...unlimited,
     },
     'Total tokens (30d)': {
       used: totals.prompt + totals.completion,
       total: 0,
-      resetAt: null,
-      unlimited: false,
+      ...unlimited,
     },
   };
 
@@ -257,8 +260,7 @@ async function aggregateXaiUsage(connection) {
       used,
       total: 0,
       unit: 'tokens',
-      resetAt: null,
-      unlimited: false,
+      ...unlimited,
     };
   }
 
