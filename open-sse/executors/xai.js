@@ -1,7 +1,12 @@
-import { DefaultExecutor } from "./default.js";
+import { BaseExecutor } from "./base.js";
+import { PROVIDERS } from "../config/providers.js";
 
-export class XAIExecutor extends DefaultExecutor {
+export class XaiExecutor extends BaseExecutor {
   constructor() {
-    super("xai");
+    super("xai", PROVIDERS.xai);
+  }
+
+  transformRequest(model, body) {
+    return body;
   }
 }
