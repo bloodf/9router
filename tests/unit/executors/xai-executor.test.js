@@ -16,4 +16,15 @@ describe("XaiExecutor suffix parsing", () => {
     expect(out.model).toBe("grok-4.3");
     expect(out.reasoning_effort).toBe("low");
   });
+  test("strips reasoning_effort for grok-build", () => {
+    const body = { model: "grok-build", reasoning_effort: "high", messages: [] };
+    const out = exec.transformRequest("xai/grok-build", body);
+    expect(out.reasoning_effort).toBeUndefined();
+  });
+
+  test("keeps reasoning_effort for grok-4.3", () => {
+    const body = { model: "grok-4.3", reasoning_effort: "high", messages: [] };
+    const out = exec.transformRequest("xai/grok-4.3", body);
+    expect(out.reasoning_effort).toBe("high");
+  });
 });
