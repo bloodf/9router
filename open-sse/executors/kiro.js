@@ -2,6 +2,7 @@ import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { v4 as uuidv4 } from "uuid";
 import { refreshKiroToken } from "../services/tokenRefresh.js";
+import { resolveKiroDataPlaneUrl } from "../config/kiroConstants.js";
 import { SSE_DONE, SSE_HEADERS } from "../utils/sseConstants.js";
 
 /**
@@ -51,6 +52,13 @@ export class KiroExecutor extends BaseExecutor {
    * (kiro.dev first) since its token is what that gateway accepts.
    */
   getOrderedBaseUrls(credentials) {
+    // IAM Identity Center accounts can be homed outside us-east-1. Their token is
+    // rejected by the hardcoded us-east-1 registry baseUrls (403 "bearer token
+    // invalid"), so route to the account's regional Amazon Q endpoint. us-east-1
+    // (Builder ID / social / unset) keeps the registry baseUrls + 429 rotation.
+    const regional = resolveKiroDataPlaneUrl(credentials?.providerSpecificData?.region);
+    if (regional) return [regional];
+
     const baseUrls = this.getBaseUrls();
     const isApiKey = credentials?.providerSpecificData?.authMethod === "api_key";
     if (!isApiKey) return baseUrls;
