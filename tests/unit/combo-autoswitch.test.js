@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   classifyTask,
   detectRequiredCapabilities,
+  getRotatedModels,
   reorderByCapabilities,
   reorderByTaskWeight,
+  resetComboRotation,
   scoreModelForTask,
 } from "../../open-sse/services/combo.js";
 
@@ -63,11 +65,12 @@ describe("detectRequiredCapabilities", () => {
     expect(r.has("reasoning")).toBe(true);
   });
 
-  it("large prompt -> reasoning", () => {
+  it("large prompt alone is not a capability auto-switch signal", () => {
     const r = detectRequiredCapabilities({
       messages: [{ role: "user", content: "x".repeat(50000) }],
     });
-    expect(r.has("reasoning")).toBe(true);
+    expect(r.has("reasoning")).toBe(false);
+    expect(classifyTask({ messages: [{ role: "user", content: "x".repeat(50000) }] }).level).toBe("heavy");
   });
 });
 
@@ -145,5 +148,26 @@ describe("smart task routing", () => {
     const task = classifyTask({ messages: [{ role: "user", content: "what is in this image?" }] });
     const out = reorderByTaskWeight(models, task, new Set(["vision"]));
     expect(out[0]).toBe("anthropic/claude-haiku-4.5");
+  });
+});
+
+describe("round robin strategy", () => {
+  it("rotates every request when sticky limit is 1, even for the same conversation", () => {
+    const comboName = `rr-${Date.now()}-pure`;
+    const models = ["provider/a", "provider/b", "provider/c"];
+    resetComboRotation(comboName);
+
+    expect(getRotatedModels(models, comboName, "round-robin", 1, "same-conversation")[0]).toBe("provider/a");
+    expect(getRotatedModels(models, comboName, "round-robin", 1, "same-conversation")[0]).toBe("provider/b");
+    expect(getRotatedModels(models, comboName, "round-robin", 1, "same-conversation")[0]).toBe("provider/c");
+  });
+
+  it("uses conversation affinity only when sticky limit is above 1", () => {
+    const comboName = `rr-${Date.now()}-sticky`;
+    const models = ["provider/a", "provider/b", "provider/c"];
+    resetComboRotation(comboName);
+
+    expect(getRotatedModels(models, comboName, "round-robin", 2, "same-conversation")[0]).toBe("provider/a");
+    expect(getRotatedModels(models, comboName, "round-robin", 2, "same-conversation")[0]).toBe("provider/a");
   });
 });

@@ -181,9 +181,12 @@ export function detectRequiredCapabilities(body) {
 
   const effort = body.reasoning_effort || body.reasoning?.effort;
   if (effort && String(effort).toLowerCase() !== "none") required.add("reasoning");
-  if (isHeavyRequest(body)) required.add("reasoning");
 
   return required;
+}
+
+function isTaskRoutingStrategy(strategy) {
+  return ["smart", "task", "task-aware", "task_aware", "auto"].includes(String(strategy || "").toLowerCase());
 }
 
 function normalizeStickyLimit(stickyLimit) {
@@ -553,7 +556,9 @@ export function getRotatedModels(models, comboName, strategy, stickyLimit = 1, c
   const state = getRotationState(rotationKey);
 
   const currentIndex = state.index % models.length;
-  if (conversationCacheKey) {
+  // stickyLimit=1 means pure per-request round robin. Conversation affinity is
+  // only active when sticky rotation is explicitly configured above 1.
+  if (normalizedStickyLimit > 1 && conversationCacheKey) {
     const now = Date.now();
     pruneConversationAffinity(now);
 
@@ -629,7 +634,8 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
   const conversationCacheKey = getConversationCacheKey(body);
   let rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit, conversationCacheKey);
 
-  // Auto-switch: first satisfy hard request capabilities, then route by task weight.
+  // Auto-switch satisfies request capabilities only. It must not override the
+  // explicit Fallback/Round Robin order for plain text requests.
   if (autoSwitch) {
     const required = detectRequiredCapabilities(body);
     if (required.size > 0) {
@@ -640,13 +646,15 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       rotatedModels = reordered;
     }
 
-    const task = classifyTask(body);
-    const taskReordered = reorderByTaskWeight(rotatedModels, task, required);
-    if (taskReordered[0] !== rotatedModels[0]) {
-      const reasons = Array.isArray(task.reasons) && task.reasons.length ? ` (${task.reasons.join(",")})` : "";
-      log.info("COMBO", `smart-route task=${task.level}${reasons} → ${taskReordered[0]}`);
+    if (isTaskRoutingStrategy(comboStrategy)) {
+      const task = classifyTask(body);
+      const taskReordered = reorderByTaskWeight(rotatedModels, task, required);
+      if (taskReordered[0] !== rotatedModels[0]) {
+        const reasons = Array.isArray(task.reasons) && task.reasons.length ? ` (${task.reasons.join(",")})` : "";
+        log.info("COMBO", `smart-route task=${task.level}${reasons} → ${taskReordered[0]}`);
+      }
+      rotatedModels = taskReordered;
     }
-    rotatedModels = taskReordered;
   }
   
   let lastError = null;
