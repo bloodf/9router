@@ -3,7 +3,7 @@ import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
-import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
+import { resolveOllamaLocalHost, PROVIDERS, resolveXiaomiTokenplanBaseUrl } from "open-sse/config/providers.js";
 import {
   refreshProviderCredentials,
   shouldRefreshCredentials,
@@ -622,8 +622,7 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
       }
       case "xiaomi-mimo":
       case "xiaomi-tokenplan": {
-        const REGION_MAP = { cn: "https://token-plan-cn.xiaomimimo.com/v1", sgp: "https://token-plan-sgp.xiaomimimo.com/v1", ams: "https://token-plan-ams.xiaomimimo.com/v1" };
-        const baseUrls = { "xiaomi-mimo": "https://api.xiaomimimo.com/v1", "xiaomi-tokenplan": REGION_MAP[connection.providerSpecificData?.region] || REGION_MAP.sgp };
+        const baseUrls = { "xiaomi-mimo": "https://api.xiaomimimo.com/v1", "xiaomi-tokenplan": resolveXiaomiTokenplanBaseUrl(connection) };
         const res = await fetchWithConnectionProxy(`${baseUrls[connection.provider]}/models`, {
           headers: { Authorization: `Bearer ${connection.apiKey}` },
         }, effectiveProxy);
