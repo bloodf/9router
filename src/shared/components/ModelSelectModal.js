@@ -306,12 +306,31 @@ export default function ModelSelectModal({
           isFetched: true,
         }));
 
-        // Merge alias models with dynamically fetched models, deduping by ID
-        const seenIds = new Set(nodeModels.map(m => m.id));
-        const mergedModels = [
-          ...nodeModels,
-          ...dynamicModelEntries.filter(m => !seenIds.has(m.id)),
-        ];
+        // Merge custom models registered via /api/models/custom for this provider
+        // providerAlias in DB uses the raw providerId, not the display prefix
+        const registeredCustom = customModels
+          .filter((m) => m.providerAlias === providerId)
+          .map((m) => ({
+            id: m.id,
+            name: m.name || m.id,
+            value: `${nodePrefix}/${m.id}`,
+            isCustom: true,
+          }));
+
+        const seenValues = new Set(nodeModels.map(m => m.value));
+        const mergedCustom = registeredCustom.filter(m => {
+          if (seenValues.has(m.value)) return false;
+          seenValues.add(m.value);
+          return true;
+        });
+        
+        const mergedDynamic = dynamicModelEntries.filter(m => {
+          if (seenValues.has(m.value)) return false;
+          seenValues.add(m.value);
+          return true;
+        });
+
+        const mergedModels = [...nodeModels, ...mergedCustom, ...mergedDynamic];
 
         // Always show compatible providers that are connected, even with no aliases or fetched models.
         // When no models exist, show a placeholder so users know it's available.
@@ -328,7 +347,7 @@ export default function ModelSelectModal({
           color: providerInfo.color,
           models: modelsToShow,
           isCustom: true,
-          hasModels: nodeModels.length > 0,
+          hasModels: mergedModels.length > 0,
         };
       } else {
         const hardcodedModels = getModelsByProviderId(providerId);
