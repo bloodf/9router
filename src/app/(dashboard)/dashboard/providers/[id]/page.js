@@ -1008,6 +1008,7 @@ export default function ProviderDetailPage() {
           onDeleteAlias={handleDeleteAlias}
           onAddCustomModel={(modelId) => handleAddCustomModel(modelId, "llm", providerStorageAlias)}
           onDeleteCustomModel={(modelId) => handleDeleteCustomModel(modelId, "llm", providerStorageAlias)}
+          onRefresh={() => Promise.all([fetchAliases(), fetchCustomModels()])}
           connections={connections}
           isAnthropic={isAnthropicCompatible}
         />
