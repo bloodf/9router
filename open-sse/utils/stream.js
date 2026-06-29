@@ -73,6 +73,10 @@ export function createSSEStream(options = {}) {
   let openAIResponsesDoneSent = false;
   let streamDoneSent = false;  // track duplicate [DONE] across transform + flush
 
+  // State for extracting <think>...</think> to reasoning_content across SSE chunks
+  let thinkBuf = "";
+  let inThink = false;
+
   return new TransformStream({
     transform(chunk, controller) {
       if (!ttftAt) ttftAt = Date.now();
@@ -135,6 +139,35 @@ export function createSSEStream(options = {}) {
               }
 
               const delta = parsed.choices?.[0]?.delta;
+              // Extract <think>...</think> from content to reasoning_content (MiniMax M3)
+              if (typeof delta?.content === "string") {
+                let t = delta.content;
+                let gotThink = false;
+                if (inThink) {
+                  let ei = t.indexOf("</think>");
+                  if (ei >= 0) {
+                    thinkBuf += t.slice(0, ei);
+                    delta.reasoning_content = thinkBuf.trim();
+                    thinkBuf = ""; inThink = false;
+                    t = t.slice(ei + 8).trimStart();
+                    gotThink = true;
+                  } else { thinkBuf += t; t = ""; gotThink = true; }
+                }
+                if (!inThink) {
+                  let si = t.indexOf("<think>");
+                  if (si >= 0) {
+                    let aft = t.slice(si + 7), ei = aft.indexOf("</think>");
+                    if (ei >= 0) {
+                      delta.reasoning_content = aft.slice(0, ei).trim();
+                      t = t.slice(0, si) + aft.slice(ei + 8).trimStart();
+                    } else { inThink = true; thinkBuf = aft; t = t.slice(0, si); }
+                    gotThink = true;
+                  }
+                }
+                if (gotThink) { fieldsInjected = true; }
+                if (delta.reasoning_content && (!t || !t.trim())) delete delta.content;
+                else delta.content = t || "";
+              }
               const content = delta?.content;
               const reasoning = delta?.reasoning_content;
               if (content && typeof content === "string") {
