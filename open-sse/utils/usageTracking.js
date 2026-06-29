@@ -219,6 +219,19 @@ export function hasValidUsage(usage) {
 export function extractUsage(chunk) {
   if (!chunk || typeof chunk !== "object") return null;
 
+  // Claude format (message_start event): carries input_tokens + cache_read +
+  // cache_creation. message_delta later carries only the final output_tokens,
+  // so callers must MERGE (mergeUsage), not overwrite, to keep cache counts.
+  if (chunk.type === "message_start" && chunk.message?.usage && typeof chunk.message.usage === "object") {
+    const u = chunk.message.usage;
+    return normalizeUsage({
+      prompt_tokens: u.input_tokens || 0,
+      completion_tokens: u.output_tokens || 0,
+      cache_read_input_tokens: u.cache_read_input_tokens,
+      cache_creation_input_tokens: u.cache_creation_input_tokens
+    });
+  }
+
   // Claude format (message_delta event)
   if (chunk.type === "message_delta" && chunk.usage && typeof chunk.usage === "object") {
     return normalizeUsage({
@@ -278,6 +291,25 @@ export function extractUsage(chunk) {
   }
 
   return null;
+}
+
+// Field-wise max-merge of two usage objects. Anthropic splits usage across
+// events: message_start has real input+cache (output is a placeholder 1),
+// message_delta has the real cumulative output (input/cache absent). Max keeps
+// the meaningful value from each without clobbering. Idempotent for other
+// providers that emit a single complete usage object.
+export function mergeUsage(prev, next) {
+  if (!prev) return next || null;
+  if (!next) return prev;
+  const merged = { ...prev };
+  for (const [k, v] of Object.entries(next)) {
+    if (typeof v === "number") {
+      merged[k] = Math.max(typeof merged[k] === "number" ? merged[k] : 0, v);
+    } else if (v && typeof v === "object") {
+      merged[k] = v; // nested details objects: take latest
+    }
+  }
+  return merged;
 }
 
 /**
