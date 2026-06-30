@@ -1,12 +1,17 @@
-import { describe, it } from "node:test";
+import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 
-// Lazy-loaded via dynamic import so missing modules don't crash the suite.
+// Load the registry entry once for the suite so a load failure is reported
+// next to the failing test instead of cascading as "undefined" in every
+// later assertion.
 let kimchiEntry;
 
 describe("kimchi registry entry", () => {
-  it("is an oauth provider auto-listed via byCategory", async () => {
+  before(async () => {
     kimchiEntry = (await import("../../open-sse/providers/registry/kimchi.js")).default;
+  });
+
+  it("is an oauth provider auto-listed via byCategory", () => {
     assert.equal(kimchiEntry.id, "kimchi");
     assert.equal(kimchiEntry.category, "oauth");
   });

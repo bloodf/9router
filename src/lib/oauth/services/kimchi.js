@@ -11,9 +11,10 @@
 // createProviderConnection with the real token.
 import { randomBytes } from "node:crypto";
 import { startLocalServer } from "../utils/server.js";
-import { KIMCHI_CONFIG } from "../constants/kimchi.js";
+import { KIMCHI_CONFIG } from "../constants/oauth.js";
 
 const sessions = new Map(); // state -> { result, close, timeout, done, resolved }
+const SESSION_TTL_MS = 5 * 60 * 1000;
 
 export function buildKimchiAuthUrl(callbackUrl, state) {
   const params = new URLSearchParams({ callback: callbackUrl, state });
@@ -51,10 +52,17 @@ export class KimchiService {
 
     sessions.set(state, { result, close, timeout, done: false, resolved: null });
 
-    // Stash the resolved value so pollToken() can retrieve the real token.
+    // Stash the resolved value so pollToken() can retrieve the real token,
+    // close the loopback server, and reap the session after a TTL so the
+    // Map can't grow unbounded across many logins.
     result.then((r) => {
       const s = sessions.get(state);
-      if (s) { s.done = true; s.resolved = r; clearTimeout(s.timeout); }
+      if (!s) return;
+      s.done = true;
+      s.resolved = r;
+      clearTimeout(s.timeout);
+      try { s.close(); } catch { /* already closed */ }
+      setTimeout(() => sessions.delete(state), SESSION_TTL_MS).unref?.();
     });
 
     const callbackUrl = `http://127.0.0.1:${port}${KIMCHI_CONFIG.callbackPath}`;

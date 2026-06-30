@@ -108,8 +108,10 @@ export async function createProviderConnection(data) {
         if (incomingWs && !existingWs) return false;
         if (!incomingWs && existingWs) return false;
         // Non-workspace providers: match on (email + username) so cross-IdP
-        // accounts don't overwrite each other.  If either side lacks username,
-        // fall back to email-only match (legacy rows / non-identity providers).
+        // accounts don't overwrite each other. Require username on both sides
+        // — if only one side has it, treat as a distinct identity rather than
+        // collapsing onto the bare-email fallback (which would re-introduce
+        // the cross-IdP overwrite).
         const existingUsername = c.providerSpecificData?.username;
         if (incomingUsername && existingUsername) {
           return incomingUsername === existingUsername;

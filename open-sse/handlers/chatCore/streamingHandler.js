@@ -55,16 +55,20 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
   // When upstream returns HTML/text instead of SSE (e.g. Cloudflare 5xx error
   // page), piping it through the SSE transform stream causes Next.js
   // "failed to pipe response" and crashes the chat router. Read the body,
-  // pull a short human-readable message from the <title>, and return a
-  // clean JSON error instead.
+  // pull a short human-readable message from the <title>, sanitize it, and
+  // return a clean JSON error instead. The message is stripped of HTML tags
+  // and clamped so untrusted upstream text never reaches the client verbatim
+  // (the UI may render error.message as HTML).
   const upstreamContentType = (providerResponse.headers.get('content-type') || '').toLowerCase();
   if (upstreamContentType && !upstreamContentType.includes('text/event-stream') && !upstreamContentType.includes('application/json')) {
     const bodyText = await providerResponse.text().catch(() => '');
     const titleMatch = bodyText.match(/<title>([^<]+)<\/title>/i);
-    const shortMsg = titleMatch?.[1]?.trim()
-      || (bodyText.length < 200 ? bodyText.trim() : `Upstream returned non-SSE response (${upstreamContentType})`);
+    const sanitizedTitle = (titleMatch?.[1] || '').replace(/<[^>]*>/g, '').replace(/[\r\n]+/g, ' ').trim().slice(0, 160);
+    const shortMsg = sanitizedTitle
+      || (bodyText.length < 200 ? bodyText.replace(/<[^>]*>/g, '').trim().slice(0, 160) : `Upstream returned non-SSE response (${upstreamContentType})`);
     const status = providerResponse.status || 502;
     console.warn(`[STREAM] ${provider} | ${model} | blocked pipe: ${shortMsg} [${status}]`);
+    streamController?.handleError?.(new Error(`upstream non-SSE: ${status}`));
     return {
       success: false,
       response: new Response(JSON.stringify({ error: { message: `[${status}]: ${shortMsg}` } }), {
