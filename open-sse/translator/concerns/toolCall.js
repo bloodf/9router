@@ -151,3 +151,63 @@ export function fixMissingToolResponses(body) {
   return body;
 }
 
+// Strip tool-result carriers whose id has no matching tool call anywhere in
+// the conversation. Mirrors fixMissingToolResponses on the result side:
+// that helper ensures every call has a result; this one ensures every result
+// has a call. Client-side history truncation can leave stale tool results
+// after the assistant turn carrying the matching tool call was dropped.
+export function stripOrphanedToolResults(body) {
+  if (!body.messages || !Array.isArray(body.messages)) return body;
+
+  const knownCallIds = new Set();
+  for (const msg of body.messages) {
+    if (msg.role !== "assistant") continue;
+
+    if (Array.isArray(msg.tool_calls)) {
+      for (const tc of msg.tool_calls) {
+        if (typeof tc?.id === "string") knownCallIds.add(tc.id);
+      }
+    }
+
+    if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block?.type === "tool_use" && typeof block.id === "string") {
+          knownCallIds.add(block.id);
+        }
+      }
+    }
+  }
+
+  let changed = false;
+  const filteredMessages = [];
+
+  for (const msg of body.messages) {
+    if (msg.role === "tool" && msg.tool_call_id) {
+      if (knownCallIds.has(msg.tool_call_id)) {
+        filteredMessages.push(msg);
+      } else {
+        changed = true;
+      }
+      continue;
+    }
+
+    if (Array.isArray(msg.content)) {
+      const cleanedContent = msg.content.filter(block => {
+        if (block?.type !== "tool_result") return true;
+        return typeof block.tool_use_id === "string" && knownCallIds.has(block.tool_use_id);
+      });
+
+      if (cleanedContent.length !== msg.content.length) {
+        changed = true;
+        if (cleanedContent.length === 0) continue;
+        msg.content = cleanedContent;
+      }
+    }
+
+    filteredMessages.push(msg);
+  }
+
+  if (!changed) return body;
+  body.messages = filteredMessages;
+  return body;
+}
