@@ -10,6 +10,18 @@ import { extractReasoningText } from "../concerns/reasoning.js";
 // is then a no-op. Kept intentionally; do NOT couple to request's empty prefix.
 const CLAUDE_OAUTH_TOOL_PREFIX = "proxy_";
 
+// Detect and deduplicate doubled JSON (e.g. {"query":"x"}{"query":"x"})
+// Some OpenAI-compatible models emit tool arguments as the same JSON object twice.
+function deduplicateDoubledJson(str) {
+  if (!str || str.length < 4) return str;
+  for (let splitAt = 2; splitAt <= Math.floor(str.length / 2); splitAt++) {
+    const left = str.slice(0, splitAt);
+    const right = str.slice(splitAt);
+    if (left === right) return left;
+  }
+  return str;
+}
+
 // Sanitize tool call arguments to fix bad params from non-Anthropic models
 function sanitizeToolArgs(toolName, argsJson) {
   try {
@@ -20,6 +32,18 @@ function sanitizeToolArgs(toolName, argsJson) {
     if (name === "Read") sanitizeReadArgs(args);
     return JSON.stringify(args);
   } catch {
+    // Deduplicate doubled JSON before giving up
+    const deduplicated = deduplicateDoubledJson(argsJson);
+    if (deduplicated !== argsJson) {
+      try {
+        const args = JSON.parse(deduplicated);
+        const name = toolName.startsWith(CLAUDE_OAUTH_TOOL_PREFIX)
+          ? toolName.slice(CLAUDE_OAUTH_TOOL_PREFIX.length)
+          : toolName;
+        if (name === "Read") sanitizeReadArgs(args);
+        return JSON.stringify(args);
+      } catch { /* fall through to raw return */ }
+    }
     return argsJson;
   }
 }
@@ -221,8 +245,8 @@ export function openaiToClaudeResponse(chunk, state) {
     }
   }
 
-  // Finish
-  if (choice.finish_reason) {
+  // Finish — guard against duplicate finish_reason chunks (common with OpenAI-compatible models)
+  if (choice.finish_reason && !state.finishReason) {
     stopThinkingBlock(state, results);
     stopTextBlock(state, results);
 

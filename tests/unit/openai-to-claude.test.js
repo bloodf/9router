@@ -170,7 +170,7 @@ describe("openaiToClaudeRequest", () => {
 
 describe("openaiToClaudeResponse", () => {
   it("omits empty Read pages tool argument before emitting Claude input deltas", () => {
-    const state = { toolCalls: new Map() };
+    const state = { toolCalls: new Map(), nextBlockIndex: 0 };
     const chunk = {
       id: "chatcmpl-test",
       model: "gpt-test",
@@ -189,7 +189,8 @@ describe("openaiToClaudeResponse", () => {
               })
             }
           }]
-        }
+        },
+        finish_reason: "tool_calls"
       }]
     };
 
