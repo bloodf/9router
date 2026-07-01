@@ -8,30 +8,21 @@
  * Multi-turn conversations balloon to 100k+ input tokens and the model
  * starts returning empty content.
  *
- * This test pins `stripReasoningContent` behavior in the Kimchi
- * executor's transformRequest: `reasoning_content` on assistant
- * messages must be removed before the body goes upstream, while
- * `content` (the actual answer) is kept for context.
+ * `stripReasoningContent` is intentionally conservative: it only strips
+ * `reasoning_content` that is clearly a real thinking block. The 1-char
+ * placeholder that `injectReasoningContent` (in `DefaultExecutor`) may
+ * insert for upstream validation is preserved — stripping it would
+ * re-trigger upstream complaints about missing reasoning on the next
+ * turn.
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import KimchiExecutor from "../../open-sse/executors/kimchi.js";
-
-// Minimal body shapers — copy of the upstream strip helper for
-// isolated testing. Mirrors the implementation in
-// open-sse/executors/kimchi.js.
-function stripReasoningContent(body) {
-  if (!Array.isArray(body?.messages)) return;
-  for (const msg of body.messages) {
-    if (msg && msg.role === "assistant" && "reasoning_content" in msg) {
-      delete msg.reasoning_content;
-    }
-  }
-}
+import KimchiExecutor, { stripReasoningContent } from "../../open-sse/executors/kimchi.js";
+import DefaultExecutor from "../../open-sse/executors/default.js";
 
 describe("kimchi stripReasoningContent", () => {
-  it("removes reasoning_content from assistant messages but keeps content", () => {
+  it("removes long reasoning_content from assistant messages but keeps content", () => {
     const body = {
       messages: [
         { role: "user", content: "solve x+5=12" },
@@ -46,6 +37,34 @@ describe("kimchi stripReasoningContent", () => {
     stripReasoningContent(body);
     assert.equal(body.messages[1].reasoning_content, undefined);
     assert.equal(body.messages[1].content, "x = 7");
+  });
+
+  it("preserves the 1-char placeholder that injectReasoningContent sets", () => {
+    // `injectReasoningContent` may insert " " (single space) on assistant
+    // messages so the upstream's validation doesn't complain about missing
+    // reasoning. Stripping that placeholder would defeat its purpose.
+    const body = {
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello", reasoning_content: " " },
+      ],
+    };
+    stripReasoningContent(body);
+    assert.equal(body.messages[1].reasoning_content, " ");
+    assert.equal(body.messages[1].content, "hello");
+  });
+
+  it("preserves short custom reasoning under the threshold", () => {
+    // Anything ≤8 chars is treated as a placeholder-shaped value, kept
+    // verbatim. Real thinking content from a thinking model is always
+    // well above this threshold.
+    const body = {
+      messages: [
+        { role: "assistant", content: "ok", reasoning_content: "short" },
+      ],
+    };
+    stripReasoningContent(body);
+    assert.equal(body.messages[0].reasoning_content, "short");
   });
 
   it("leaves non-assistant messages untouched", () => {
@@ -77,42 +96,33 @@ describe("kimchi stripReasoningContent", () => {
     assert.deepEqual(body.messages[1], { role: "assistant", content: "hello" });
   });
 
-  it("integrates into KimchiExecutor.transformRequest for multi-turn case", async () => {
-    // The executor's actual transformRequest will reach upstream; this
-    // test verifies the assistant message loses reasoning_content before
-    // reaching that point. We call the helper directly to avoid network.
-    const messages = [
-      { role: "user", content: "step 1" },
-      {
-        role: "assistant",
-        content: "ok here is step 1 done",
-        reasoning_content: "LONG internal scratch ".repeat(2000),
-      },
-      { role: "user", content: "step 2" },
-    ];
-
-    // Pull the executor's transformRequest by mocking the parent class
-    // through the actual class — we expect `super.transformRequest` to
-    // throw (no credentials/network), so we just verify the strip path
-    // is reached by inspecting the helper output for an identical body.
-    const { default: _Exec } = await import("../../open-sse/executors/kimchi.js");
-    void _Exec; // keep import alive
-
-    const copied = JSON.parse(JSON.stringify({ messages }));
-    stripReasoningContent(copied);
-    assert.equal(copied.messages[1].content, "ok here is step 1 done");
-    assert.equal(copied.messages[1].reasoning_content, undefined);
-    assert.ok(
-      !("reasoning_content" in copied.messages[1]),
-      "reasoning_content should be deleted, not set to undefined-looking",
-    );
+  it("handles multi-turn: strips old turns, keeps recent one", () => {
+    const LONG = "x".repeat(1000);
+    const body = {
+      messages: [
+        { role: "user", content: "q1" },
+        { role: "assistant", content: "a1", reasoning_content: LONG },
+        { role: "user", content: "q2" },
+        { role: "assistant", content: "a2", reasoning_content: " " }, // placeholder
+      ],
+    };
+    stripReasoningContent(body);
+    assert.equal(body.messages[1].reasoning_content, undefined);
+    assert.equal(body.messages[3].reasoning_content, " ");
   });
 });
 
 describe("kimchi executor wiring", () => {
-  it("exports a class extending DefaultExecutor", () => {
-    assert.equal(typeof KimchiExecutor, "function");
+  it("KimchiExecutor extends DefaultExecutor via prototype chain", () => {
     const inst = new KimchiExecutor();
-    assert.equal(inst.constructor.name, "KimchiExecutor");
+    assert.ok(
+      inst instanceof DefaultExecutor,
+      "KimchiExecutor must extend DefaultExecutor so transformRequest runs through super",
+    );
+  });
+
+  it("default export is KimchiExecutor class", () => {
+    assert.equal(typeof KimchiExecutor, "function");
+    assert.equal(KimchiExecutor.name, "KimchiExecutor");
   });
 });

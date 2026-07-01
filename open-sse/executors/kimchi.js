@@ -67,18 +67,20 @@ function stripToolArtifacts(body) {
   });
 }
 
-// Strip `reasoning_content` echoed by clients on assistant messages.
-// When 9Router streams a thinking model (e.g. minimax-m3, deepseek-r1) back
-// to a client, the response carries a full `reasoning_content` scratch block.
-// If the client echoes the whole history on the next turn (the default for
-// most OpenAI-compatible SDKs), Kimchi's upstream counts that scratch as
-// input tokens — multi-turn conversations balloon to 100k+ input tokens and
-// the model starts returning empty content. Stripping the field here keeps
-// `content` (the actual answer) for context while shedding the scratch.
-function stripReasoningContent(body) {
+// Strip `reasoning_content` echoed by clients on assistant messages — but
+// only when it's a real thinking block. `DefaultExecutor.transformRequest`
+// runs `injectReasoningContent` first and may inject a 1-char placeholder
+// (" ") for upstream validation; the placeholder is small (no token cost
+// worth stripping) and stripping it would re-trigger upstream to complain
+// about missing reasoning on the next turn. Threshold matches the
+// placeholder length with a safety margin.
+const REASONING_PLACEHOLDER_MAX_LEN = 8;
+
+export function stripReasoningContent(body) {
   if (!Array.isArray(body?.messages)) return;
   for (const msg of body.messages) {
-    if (msg && msg.role === "assistant" && "reasoning_content" in msg) {
+    if (msg && msg.role === "assistant" && typeof msg.reasoning_content === "string"
+        && msg.reasoning_content.length > REASONING_PLACEHOLDER_MAX_LEN) {
       delete msg.reasoning_content;
     }
   }
