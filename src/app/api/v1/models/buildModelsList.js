@@ -12,7 +12,7 @@ import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { resolveCopilotModels } from "open-sse/services/copilotModels.js";
 import { resolveClinepassModels } from "open-sse/services/clinepassModels.js";
-import { capabilitiesFromServiceKind } from "open-sse/providers/capabilities.js";
+import { aggregateComboCapabilities, capabilitiesFromServiceKind, getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -281,6 +281,7 @@ export async function buildModelsList(kindFilter) {
   }
 
   const models = [];
+  const comboByName = Object.fromEntries(combos.map((combo) => [combo.name, combo.models || []]));
 
   // Combos first (filtered by kind). Web combos expose `kind` so AI knows search vs fetch.
   for (const combo of combos) {
@@ -292,6 +293,9 @@ export async function buildModelsList(kindFilter) {
     };
     if (combo.kind === "webSearch" || combo.kind === "webFetch") {
       entry.kind = combo.kind;
+    } else {
+      const comboCaps = aggregateComboCapabilities(combo.models || [], comboByName);
+      if (comboCaps) entry.capabilities = comboCaps;
     }
     models.push(entry);
   }
@@ -311,6 +315,7 @@ export async function buildModelsList(kindFilter) {
           id: `${alias}/${model.id}`,
           object: "model",
           owned_by: alias,
+          capabilities: getCapabilitiesForModel(providerId, model.id),
         });
       }
     }
@@ -354,6 +359,8 @@ export async function buildModelsList(kindFilter) {
       const staticModelKindById = new Map(
         providerModels.map((m) => [m.id, modelKind(m)])
       );
+      const liveModelKindById = new Map();
+      const liveCapabilitiesById = new Map();
 
       let rawModelIds = hasExplicitEnabledModels
         ? Array.from(
@@ -377,7 +384,11 @@ export async function buildModelsList(kindFilter) {
         try {
           const live = await liveResolver(conn);
           if (live?.models?.length) {
-            rawModelIds = live.models.map((m) => m.id);
+            rawModelIds = live.models.map((m) => {
+              if (m.kind || m.type) liveModelKindById.set(m.id, m.kind || m.type);
+              if (isRecord(m.capabilities)) liveCapabilitiesById.set(m.id, m.capabilities);
+              return m.id;
+            });
           }
         } catch (err) {
           console.log(`Live model fetch failed for ${providerId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -437,25 +448,25 @@ export async function buildModelsList(kindFilter) {
       const mergedModelIds = Array.from(new Set([...modelIds, ...customModelIds, ...aliasModelIds]));
 
       for (const modelId of mergedModelIds) {
-        // Resolve kind: prefer static/custom metadata, otherwise infer from ID heuristics
+        // Resolve kind: prefer custom/live/static metadata, otherwise infer from ID heuristics
         const customKind = customModelKindById.get(modelId);
-        const kind = staticModelKindById.get(modelId) || customKind || inferKindFromUnknownModelId(modelId);
+        const liveKind = liveModelKindById.get(modelId);
+        const kind = customKind || liveKind || staticModelKindById.get(modelId) || inferKindFromUnknownModelId(modelId);
         // imageToText custom models stay in the LLM list (vision-capable chat models)
         const allowAsLlm = kind === "imageToText" && kindFilter.includes(LLM_KIND);
         if (!kindFilter.includes(kind) && !allowAsLlm) continue;
         if (isDisabled(outputAlias, modelId) || isDisabled(staticAlias, modelId)) continue;
 
+        const caps =
+          liveCapabilitiesById.get(modelId)
+          || capabilitiesFromServiceKind(customKind || liveKind)
+          || getCapabilitiesForModel(providerId, modelId);
         const model = {
           id: `${outputAlias}/${modelId}`,
           object: "model",
           owned_by: outputAlias,
+          capabilities: caps,
         };
-        const caps = customKind ? capabilitiesFromServiceKind(customKind) : null;
-        if (caps) {
-          model.capabilities = Object.fromEntries(
-            Object.entries(caps).filter(([, v]) => typeof v === "boolean"),
-          );
-        }
         models.push(model);
       }
 
