@@ -65,8 +65,14 @@ export function translateRequest(sourceFormat, targetFormat, model, body, stream
   // Fix missing tool responses (insert empty tool_result if needed)
   fixMissingToolResponses(result);
 
-  // Strip orphaned tool results (tool_result with no matching tool_call)
-  stripOrphanedToolResults(result);
+  // Strip orphaned tool results (tool_result with no matching tool_call).
+  // Skip for Kiro: its request translator salvages orphaned tool_results by
+  // folding their content into user text (reconcileOrphanedToolResults /
+  // flattenClaudeToolInteractions) rather than dropping it. Stripping here
+  // first would delete that content before the Kiro translator can preserve it.
+  if (targetFormat !== FORMATS.KIRO) {
+    stripOrphanedToolResults(result);
+  }
 
   // Capture thinking intent from the original (pre-translation) body, before any
   // format conversion strips/renames the fields. Applied after translation.

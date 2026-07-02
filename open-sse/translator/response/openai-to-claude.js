@@ -245,8 +245,13 @@ export function openaiToClaudeResponse(chunk, state) {
     }
   }
 
-  // Finish — guard against duplicate finish_reason chunks (common with OpenAI-compatible models)
-  if (choice.finish_reason && !state.finishReason) {
+  // Finish — guard against duplicate finish_reason chunks (common with OpenAI-compatible models).
+  // Use a Claude-specific flag, NOT the shared state.finishReason: in a pivot like
+  // Antigravity/Gemini → OpenAI → Claude the upstream gemini-to-openai stage already sets
+  // state.finishReason (for stream.js usage injection), which would otherwise suppress this
+  // flush and drop the tool-call input_json_delta.
+  if (choice.finish_reason && !state.claudeFinishHandled) {
+    state.claudeFinishHandled = true;
     stopThinkingBlock(state, results);
     stopTextBlock(state, results);
 
