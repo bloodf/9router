@@ -368,15 +368,23 @@ function validateOpenAIResponses(body, errors) {
           return;
         }
         const t = tool;
-        if (
-          t.type === OPENAI_BLOCK.FUNCTION &&
-          (!t.function || typeof t.function !== "object")
-        ) {
-          pushError(
-            errors,
-            `${p}.function`,
-            "function tool requires .function object",
-          );
+        // Responses API uses a FLATTENED function tool shape:
+        //   { type: "function", name, description, parameters, strict }
+        // (not the Chat Completions nested { type: "function", function: {...} }).
+        // The request translator emits the flattened shape, so validate for a
+        // resolvable name. Tolerate a nested .function.name so no upstream path regresses.
+        if (t.type === OPENAI_BLOCK.FUNCTION) {
+          const name =
+            (typeof t.name === "string" && t.name) ||
+            (t.function && typeof t.function.name === "string" && t.function.name) ||
+            "";
+          if (name.trim() === "") {
+            pushError(
+              errors,
+              `${p}.name`,
+              "function tool requires a non-empty .name (Responses API flattened function tool shape)",
+            );
+          }
         }
       });
     }
