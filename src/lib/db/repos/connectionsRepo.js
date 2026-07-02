@@ -106,6 +106,11 @@ export async function createProviderConnection(data) {
         if (incomingWs && existingWs) return incomingWs === existingWs;
         return true; // fallback: email-only match for non-workspace providers
       });
+    }
+    if (!existing && data.provider === "cursor" && data.providerSpecificData?.userId) {
+      existing = all.find(
+        (c) => c.providerSpecificData?.userId === data.providerSpecificData.userId,
+      );
     } else if (data.authType === "apikey" && data.name) {
       existing = all.find(c => c.authType === "apikey" && c.name === data.name);
     }
