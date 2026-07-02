@@ -157,6 +157,12 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     delete translatedBody.tools;
   }
 
+  // Claude tool schema requires `type` to be explicitly set; strict gateways (e.g., MiniMax)
+  // reject legacy payloads that omit it with HTTP 400. Default to "custom" when missing.
+  if (finalFormat === "claude" && Array.isArray(translatedBody.tools)) {
+    translatedBody.tools = translatedBody.tools.map(tool => tool.type ? tool : { type: "custom", ...tool });
+  }
+
   // RTK: compress tool_result content
   const rtkStats = compressMessages(translatedBody, rtkEnabled);
   const rtkLine = formatRtkLog(rtkStats);
