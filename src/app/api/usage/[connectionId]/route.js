@@ -175,9 +175,15 @@ export async function GET(request, { params }) {
       }
     }
 
-    // xAI has no public quota API; aggregate from local usageHistory
+    // Providers without a public quota API — aggregate from local usageHistory
     if (connection.provider === 'xai') {
-      return Response.json(await aggregateXaiUsage(connection));
+      return Response.json(await aggregateLocalUsage(connection, 'xAI / Grok Build'));
+    }
+    if (connection.provider === 'opencode-go') {
+      return Response.json(await aggregateLocalUsage(connection, 'OpenCode Go'));
+    }
+    if (connection.provider === 'opencode') {
+      return Response.json(await aggregateLocalUsage(connection, 'OpenCode'));
     }
 
     // Fetch usage from provider API
@@ -204,22 +210,21 @@ export async function GET(request, { params }) {
 }
 
 /**
- * Aggregate xAI usage from local usageHistory.
- * xAI does not expose a public per-account quota endpoint (the
- * billing console at console.x.ai requires a session cookie, not an
- * API key), so we surface real spend and token usage from 9router's
- * own request log over the last 30 days, grouped per model.
+ * Aggregate usage from local usageHistory for providers without public quota APIs.
+ * xAI does not expose a public per-account quota endpoint (the billing console
+ * requires a session cookie, not an API key), so we surface real spend and token
+ * usage from 9router's own request log over the last 30 days, grouped per model.
  */
-async function aggregateXaiUsage(connection) {
+async function aggregateLocalUsage(connection, label) {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const rows = await getUsageHistory({ provider: 'xai', startDate: since });
+  const rows = await getUsageHistory({ provider: connection.provider, startDate: since });
   const filtered = rows.filter((r) => !connection.id || r.connectionId === connection.id);
 
   if (!filtered.length) {
     return {
-      message: 'xAI connected. No requests recorded in the last 30 days.',
+      message: `${label} connected. No requests recorded in the last 30 days.`,
       quotas: {},
-      displayMessage: 'xAI connected. No usage yet.',
+      displayMessage: `${label} connected. No usage yet.`,
     };
   }
 
@@ -272,8 +277,8 @@ async function aggregateXaiUsage(connection) {
   }
 
   return {
-    plan: 'xAI / Grok Build',
-    displayMessage: 'xAI connected. ' + totals.requests + ' requests in the last 30 days.',
+    plan: label,
+    displayMessage: `${label} connected. ${totals.requests} requests in the last 30 days.`,
     quotas,
   };
 }
