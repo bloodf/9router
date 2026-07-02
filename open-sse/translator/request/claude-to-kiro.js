@@ -142,7 +142,7 @@ function convertClaudeMessagesToKiro(messages, tools, model) {
 
   const flushPending = () => {
     if (currentRole === ROLE.USER) {
-      const content = pendingUserContent.join("\n\n").trim() || "continue";
+      const content = pendingUserContent.join("\n\n").trim() || "...";
       const userMsg = { userInputMessage: { content, modelId: model } };
 
       if (pendingImages.length > 0) {
