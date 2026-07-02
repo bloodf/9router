@@ -7,6 +7,7 @@ import { createErrorResult } from "../../utils/error.js";
 import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 import { parseSSEToOpenAIResponse } from "./sseToJsonHandler.js";
 import { buildRequestDetail, extractRequestConfig, extractUsageFromResponse, saveUsageStats } from "./requestDetail.js";
+import { translateOpenAIToClaudeIfNeeded } from "../../translator/response/openai-to-claude-json.js";
 import { appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { decloakToolNames } from "../../utils/claudeCloaking.js";
 import { stripThinkFromResponse } from "../../utils/thinkStripper.js";
@@ -66,8 +67,13 @@ function openAICompletionToClaudeMessage(responseBody) {
  */
 export function translateNonStreamingResponse(responseBody, targetFormat, sourceFormat) {
   if (targetFormat === sourceFormat) return responseBody;
-  if (targetFormat === FORMATS.OPENAI && sourceFormat === FORMATS.CLAUDE) {
-    return openAICompletionToClaudeMessage(responseBody);
+
+  // When the client spoke Claude but the upstream spoke OpenAI (e.g. gpt-5.5-9router
+  // routes to an OpenAI-format provider), convert the OpenAI body to Anthropic
+  // Messages shape so the Claude client gets a parseable content[] block
+  // instead of a leaked {object:"chat.completion",choices:[...]} payload.
+  if (sourceFormat === FORMATS.CLAUDE && targetFormat === FORMATS.OPENAI) {
+    return translateOpenAIToClaudeIfNeeded(responseBody, sourceFormat);
   }
   if (targetFormat === FORMATS.OPENAI) return responseBody;
 
