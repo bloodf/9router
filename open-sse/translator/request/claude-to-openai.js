@@ -183,7 +183,7 @@ function convertClaudeMessage(msg) {
             type: OPENAI_BLOCK.FUNCTION,
             function: {
               name: block.name,
-              arguments: JSON.stringify(block.input || {})
+              arguments: typeof block.input === "string" ? block.input : JSON.stringify(block.input || {})
             }
           });
           break;
