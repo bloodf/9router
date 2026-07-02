@@ -11,6 +11,7 @@ import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { resolveCopilotModels } from "open-sse/services/copilotModels.js";
+import { resolveClinepassModels } from "open-sse/services/clinepassModels.js";
 import { capabilitiesFromServiceKind } from "open-sse/providers/capabilities.js";
 
 function isRecord(value) {
@@ -90,7 +91,18 @@ const LIVE_MODEL_RESOLVERS = {
       .filter((m) => typeof m.id === "string")
       .map((m) => ({ id: m.id, ...(typeof m.name === "string" ? { name: m.name } : {}) }));
     return models.length ? { models } : null;
-  }
+  },
+  clinepass: async (conn) => {
+    const result = await resolveClinepassModels({
+      accessToken: typeof conn.accessToken === "string" ? conn.accessToken : undefined,
+      apiKey: typeof conn.apiKey === "string" ? conn.apiKey : undefined,
+    });
+    if (!result?.models?.length) return null;
+    const models = result.models
+      .filter((m) => typeof m.id === "string")
+      .map((m) => ({ id: m.id, ...(typeof m.name === "string" ? { name: m.name } : {}) }));
+    return models.length ? { models } : null;
+  },
 };
 
 const parseOpenAIStyleModels = (data) => {
