@@ -22,6 +22,11 @@ export default {
   category: "apikey",
   hasProviderSpecificData: true,
   defaultRegion: "sgp",
+  regions: [
+    { id: "sgp", label: "Singapore" },
+    { id: "cn", label: "China" },
+    { id: "ams", label: "Europe" },
+  ],
   transport: {
     baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
     regions: {
