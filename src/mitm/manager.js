@@ -50,6 +50,7 @@ const MITM_RESTART_RESET_MS = 60000;
 let mitmRestartCount = 0;
 let mitmLastStartTime = 0;
 let mitmIsRestarting = false;
+let mitmStarting = false; // prevents concurrent startServer() calls from the same process
 
 function resolveBundledServerPath() {
   if (process.env.MITM_SERVER_PATH) return process.env.MITM_SERVER_PATH;
@@ -490,19 +491,25 @@ async function startServer(apiKey, sudoPassword, forceKillPort443 = false) {
     throw new Error("MITM server is already running");
   }
 
+  if (mitmStarting) {
+    throw new Error("MITM server is already starting");
+  }
+  mitmStarting = true;
+
   // Atomically claim lock to prevent concurrent startServer across processes.
   // O_EXCL (flag: "wx") fails with EEXIST if the file already exists.
   try {
     fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: "wx" });
   } catch (e) {
     if (e.code === "EEXIST") {
+      mitmStarting = false;
       throw new Error("MITM server is already starting (lock contention)");
     }
     throw e;
   }
 
   try {
-    await killLeftoverMitm(sudoPassword);
+  await killLeftoverMitm(sudoPassword);
 
   if (!IS_WIN) {
     const portStatus = await checkPort443Free();
@@ -730,7 +737,10 @@ async function startServer(apiKey, sudoPassword, forceKillPort443 = false) {
   } catch (e) {
     // Clean up lock on any failure
     try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
+    mitmStarting = false;
     throw e;
+  } finally {
+    mitmStarting = false;
   }
 }
 
