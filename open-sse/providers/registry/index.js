@@ -99,6 +99,7 @@ import p96 from "./xiaomi-mimo.js";
 import p97 from "./xiaomi-tokenplan.js";
 import p98 from "./youcom.js";
 import p99 from "./nube.js";
+import p100 from "./kenari.js";
 
 export default [
   p0,
