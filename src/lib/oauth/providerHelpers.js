@@ -1,4 +1,5 @@
 import { buildKiroProfileEndpoint } from "../../../open-sse/config/kiroRegions.js";
+import { assertValidAwsRegion } from "./constants/oauth";
 
 const BASE64_BLOCK_SIZE = 4;
 
@@ -68,10 +69,12 @@ export async function fetchKiroProfileArn(accessToken, region = "us-east-1") {
     });
     if (!response.ok) return null;
     const data = await response.json();
-    const profiles = data.profiles || [];
-    return profiles.find((p) => p.arn?.includes(region))?.arn?.trim()
-      || profiles.find((p) => p.arn?.trim())?.arn?.trim()
-      || null;
+    const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+    // Prefer a profile whose ARN region matches the caller's region — IDC users
+    // in eu-west-1 / ap-southeast-1 must not be pinned to a us-east-1 profile.
+    const arnOf = (p) => (p?.arn || p?.profileArn || "").trim() || null;
+    const inRegion = profiles.find((p) => arnOf(p)?.split(":")[3] === safeRegion);
+    return arnOf(inRegion) || arnOf(profiles[0]) || null;
   } catch {
     return null;
   }
