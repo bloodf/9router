@@ -350,7 +350,6 @@ function isSameFilterState(currentState, nextState) {
     currentState.page === nextState.page
   );
 }
-
 function formatCreditDate(value) {
   if (!value) return "N/A";
   const date = new Date(value);
