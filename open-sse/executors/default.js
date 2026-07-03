@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS, PROVIDER_OAUTH } from "../config/providers.js";
 import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE } from "../providers/shared.js";
@@ -7,6 +8,43 @@ import { getCachedClaudeHeaders } from "../utils/claudeHeaderCache.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 import { stripUnsupportedParams } from "../translator/concerns/paramSupport.js";
+import { resolveSessionId } from "../utils/sessionManager.js";
+import { getOpenAICompatibleType } from "../services/provider.js";
+
+// Opt-in prompt-cache key injection for openai-compatible providers.
+// OpenAI-style upstreams (Chat Completions + Responses) accept an optional
+// `prompt_cache_key` routing hint that pins a conversation to a cache shard,
+// the same mechanism the Codex executor uses. We do NOT enable it by default:
+// some strict openai-compatible gateways reject unknown fields. A custom
+// provider opts in via providerSpecificData.enablePromptCacheKey === true.
+export function normalizePromptCacheKey(provider, sessionId) {
+  if (!sessionId) return "";
+  const scoped = `${provider || "openai-compatible"}:${sessionId}`;
+  return `cc_${crypto.createHash("sha256").update(scoped).digest("hex").slice(0, 32)}`;
+}
+
+export function injectPromptCacheKey(provider, body, credentials) {
+  if (!body || typeof body !== "object") return body;
+  if (credentials?.providerSpecificData?.enablePromptCacheKey !== true) return body;
+  if (typeof body.prompt_cache_key === "string" && body.prompt_cache_key) return body;
+
+  // translateRequest() already captured a conversation-stable id into
+  // credentials._clientSessionId; fall back to resolving one here so this
+  // also works on the same-format fast path (openai→openai) where capture
+  // may not have run. The upstream key is a short provider-scoped hash rather
+  // than a raw client/session identifier, keeping it stable but provider-safe.
+  const sessionId = credentials?._clientSessionId || resolveSessionId({
+    headers: credentials?.rawHeaders,
+    body,
+    connectionId: credentials?.connectionId,
+    workspaceId: credentials?.providerSpecificData?.workspaceId,
+    scope: provider,
+  });
+
+  const promptCacheKey = normalizePromptCacheKey(provider, sessionId);
+  if (promptCacheKey) body.prompt_cache_key = promptCacheKey;
+  return body;
+}
 
 // Auth header descriptors — derived from registry transport.auth, fallback to hardcoded defaults.
 const BEARER = { combined: true, header: "Authorization", scheme: "bearer" };
@@ -81,7 +119,7 @@ export class DefaultExecutor extends BaseExecutor {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
   }
 
-  transformRequest(model, body) {
+  transformRequest(model, body, stream, credentials) {
     const transformed = this.applyJsonSchemaFallback(body);
 
     if (transformed && typeof transformed === "object") {
@@ -90,6 +128,7 @@ export class DefaultExecutor extends BaseExecutor {
         delete transformed.client_metadata;
       }
       this.defaultResponsesTextFormat(transformed);
+      injectPromptCacheKey(this.provider, transformed, credentials);
       stripUnsupportedParams(this.provider, model, transformed);
     }
 
@@ -138,7 +177,8 @@ export class DefaultExecutor extends BaseExecutor {
     if (this.provider?.startsWith?.("openai-compatible-")) {
       const baseUrl = credentials?.providerSpecificData?.baseUrl || OPENAI_COMPAT_BASE;
       const normalized = baseUrl.replace(/\/$/, "");
-      const path = this.provider.includes("responses") ? "/responses" : "/chat/completions";
+      const apiType = getOpenAICompatibleType(this.provider, credentials);
+      const path = apiType === "responses" ? "/responses" : "/chat/completions";
       return `${normalized}${path}`;
     }
     if (this.provider?.startsWith?.("anthropic-compatible-")) {
