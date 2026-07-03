@@ -6,6 +6,7 @@ import { refreshKiroToken } from "../services/tokenRefresh.js";
 import { resolveKiroDataPlaneUrl } from "../config/kiroConstants.js";
 import { SSE_DONE, SSE_HEADERS } from "../utils/sseConstants.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
+import { resolveKiroRegion, buildKiroBaseUrls } from "../config/kiroRegions.js";
 
 /**
  * KiroExecutor - Executor for Kiro AI (AWS CodeWhisperer)
@@ -48,7 +49,7 @@ export class KiroExecutor extends BaseExecutor {
   }
 
   /**
-   * Auth-aware endpoint ordering.
+   * Build the region-correct, auth-aware ordered endpoint list.
    *
    * API-key Kiro connections store a raw CodeWhisperer credential (validated
    * against codewhisperer.us-east-1.amazonaws.com via ListAvailableProfiles).

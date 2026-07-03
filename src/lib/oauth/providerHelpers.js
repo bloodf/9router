@@ -1,3 +1,5 @@
+import { buildKiroProfileEndpoint } from "../../../open-sse/config/kiroRegions.js";
+
 const BASE64_BLOCK_SIZE = 4;
 
 function validateXaiOAuthEndpoint(rawUrl, field) {
@@ -50,20 +52,15 @@ function extractEmailFromAccessToken(accessToken) {
   return payload.email || payload.preferred_username || payload.sub || undefined;
 }
 
-export async function fetchKiroProfileArn(accessToken, region) {
+export async function fetchKiroProfileArn(accessToken, region = "us-east-1") {
   if (!accessToken) return null;
-  // IdC accounts homed outside us-east-1 only expose their CodeWhisperer profile
-  // via the regional Amazon Q host; us-east-1 returns an empty profile list for
-  // them. Default to the historical us-east-1 codewhisperer host.
-  const normalizedRegion = typeof region === "string" && region.trim() ? region.trim() : "us-east-1";
-  const host = normalizedRegion === "us-east-1"
-    ? "https://codewhisperer.us-east-1.amazonaws.com"
-    : `https://q.${normalizedRegion}.amazonaws.com`;
+  const endpoint = buildKiroProfileEndpoint(region);
   try {
-    const response = await fetch(`${host}/ListAvailableProfiles`, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/x-amz-json-1.0",
+        "x-amz-target": "AmazonCodeWhispererService.ListAvailableProfiles",
         Accept: "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
@@ -71,7 +68,10 @@ export async function fetchKiroProfileArn(accessToken, region) {
     });
     if (!response.ok) return null;
     const data = await response.json();
-    return data.profiles?.find((p) => p.arn?.trim())?.arn?.trim() || null;
+    const profiles = data.profiles || [];
+    return profiles.find((p) => p.arn?.includes(region))?.arn?.trim()
+      || profiles.find((p) => p.arn?.trim())?.arn?.trim()
+      || null;
   } catch {
     return null;
   }

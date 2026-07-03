@@ -17,6 +17,19 @@
 
 import { extractThinking } from "../translator/concerns/thinkingUnified.js";
 import { effortToBudget } from "../translator/concerns/thinking.js";
+import { resolveKiroRegion, alignProfileArnRegion, KIRO_DEFAULT_REGION } from "./kiroRegions.js";
+
+// Re-export region helpers so existing importers of kiroConstants keep working
+// and there is one obvious place to find all Kiro request-shaping helpers.
+export {
+  resolveKiroRegion,
+  alignProfileArnRegion,
+  buildKiroBaseUrls,
+  buildKiroProfileEndpoint,
+  buildKiroOidcEndpoint,
+  regionFromProfileArn,
+  KIRO_DEFAULT_REGION,
+} from "./kiroRegions.js";
 
 export const KIRO_AGENTIC_SUFFIX = "-agentic";
 export const KIRO_THINKING_SUFFIX = "-thinking";
@@ -46,14 +59,6 @@ export function resolveDefaultProfileArn(authMethod) {
 // These helpers thread `providerSpecificData.region` through, defaulting to
 // us-east-1 so existing Builder ID / social accounts are unaffected.
 
-export const KIRO_DEFAULT_REGION = "us-east-1";
-
-/** Normalize a Kiro region, falling back to us-east-1. */
-export function resolveKiroRegion(region) {
-  const r = typeof region === "string" ? region.trim() : "";
-  return r || KIRO_DEFAULT_REGION;
-}
-
 /**
  * Data-plane (generateAssistantResponse) URL for a region.
  * Returns null for us-east-1 so callers keep the historical registry baseUrls
@@ -76,6 +81,32 @@ export function resolveKiroControlPlaneHost(region) {
   return r === KIRO_DEFAULT_REGION
     ? "https://codewhisperer.us-east-1.amazonaws.com"
     : `https://q.${r}.amazonaws.com`;
+}
+
+/**
+ * Resolve the profileArn to send with a Kiro request, always aligned to the
+ * credential's region. This is the single place that decides which profileArn
+ * (if any) a request carries:
+ *
+ *   - a stored profileArn      → returned, with its region segment aligned to
+ *                                the request region (self-heals mismatches)
+ *   - no ARN, api_key auth     → "" (api keys must use their own account ARN;
+ *                                the shared default would 403)
+ *   - no ARN, us-east-1        → the shared builder-id/social default ARN
+ *   - no ARN, other region     → "" (no shared default exists outside us-east-1;
+ *                                the ARN is resolved on token refresh instead)
+ *
+ * @param {object} credentials Connection record with providerSpecificData
+ * @param {string} [region]    Pre-resolved region (defaults to resolveKiroRegion)
+ * @returns {string} profileArn or "" when none should be sent
+ */
+export function resolveKiroProfileArn(credentials, region) {
+  const psd = credentials?.providerSpecificData || {};
+  const r = region || resolveKiroRegion(credentials);
+  if (psd.profileArn) return alignProfileArnRegion(psd.profileArn, r);
+  if (psd.authMethod === "api_key") return "";
+  if (r === KIRO_DEFAULT_REGION) return resolveDefaultProfileArn(psd.authMethod);
+  return "";
 }
 
 export const KIRO_THINKING_BUDGET_DEFAULT = 16000;

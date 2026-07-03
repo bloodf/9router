@@ -31,7 +31,7 @@ import {
   resolveKiroThinkingBudget,
   buildThinkingSystemPrefix,
   KIRO_AGENTIC_SYSTEM_PROMPT,
-  resolveDefaultProfileArn,
+  resolveKiroProfileArn,
 } from "../../config/kiroConstants.js";
 import { DEFAULT_IMAGE_MIME } from "../schema/index.js";
 import { ROLE, CLAUDE_BLOCK } from "../schema/index.js";
@@ -405,14 +405,8 @@ export function claudeToKiroRequest(model, body, stream, credentials) {
     reconcileOrphanedToolResults(history, currentMessage);
   }
 
-  // api_key / idc / external_idp must never use the shared default ARN (belongs
-  // to another account → 403 "bearer token invalid"); OAuth/social fall back to it.
-  const authMethod = credentials?.providerSpecificData?.authMethod;
-  const accountBoundAuth =
-    authMethod === "api_key" || authMethod === "idc" || authMethod === "external_idp";
-  const profileArn = accountBoundAuth
-    ? (credentials?.providerSpecificData?.profileArn || "")
-    : (credentials?.providerSpecificData?.profileArn || resolveDefaultProfileArn(authMethod));
+  // Resolve the profileArn (region-aligned) via the single source of truth.
+  const profileArn = resolveKiroProfileArn(credentials);
 
   let finalContent = currentMessage?.userInputMessage?.content || "";
 
